@@ -2,10 +2,13 @@ package cn.pepedd.codesandbox.controller;
 
 import cn.pepedd.codesandbox.model.ExecuteCodeRequest;
 import cn.pepedd.codesandbox.model.ExecuteCodeResponse;
+import cn.pepedd.codesandbox.service.java.impl.JavaDockerCodeSandboxImpl;
+import cn.pepedd.codesandbox.service.java.impl.JavaNativeCodeSandboxImpl;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -16,8 +19,8 @@ public class IndexController {
 
   private static final String AUTH_REQUEST_SECRET = "secretKey";
 
-//  @Resource
-//  private JavaNativeCodeSandbox javaNativeCodeSandbox;
+  @Resource
+  private JavaNativeCodeSandboxImpl javaNativeCodeSandbox;
 
 
   /**
@@ -38,7 +41,6 @@ public class IndexController {
     if (executeCodeRequest == null) {
       throw new RuntimeException("请求参数为空");
     }
-//    return javaNativeCodeSandbox.executeCode(executeCodeRequest);
-    return null;
+    return javaNativeCodeSandbox.executeCode(executeCodeRequest);
   }
 }

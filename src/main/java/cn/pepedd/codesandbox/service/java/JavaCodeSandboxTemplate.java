@@ -1,29 +1,25 @@
-package cn.pepedd.codesandbox.service.impl;
+package cn.pepedd.codesandbox.service.java;
 
-import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.dfa.FoundWord;
-import cn.hutool.dfa.WordTree;
 import cn.pepedd.codesandbox.model.ExecuteCodeRequest;
 import cn.pepedd.codesandbox.model.ExecuteCodeResponse;
 import cn.pepedd.codesandbox.model.ExecuteMessage;
 import cn.pepedd.codesandbox.model.JudgeInfo;
 import cn.pepedd.codesandbox.service.CodeSandbox;
+import cn.pepedd.codesandbox.utils.FileUtil;
 import cn.pepedd.codesandbox.utils.ProcessUtil;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
 
-public class JavaNativeCodeSandboxImpl implements CodeSandbox {
-  // 转大写快捷键 CTRL + U
-  // 这里将会生成在 target 下的 tmp/code 目录
+/**
+ * TODO
+ *
+ * @author pepedd864
+ * @since 2024/6/12
+ */
+public abstract class JavaCodeSandboxTemplate implements CodeSandbox {
   private static final String DEFAULT_CODE_PATH = "tmp/code";
   public static final String DEFAULT_CODE_NAME = "Main.java";
   // 最大超时时间
@@ -32,45 +28,43 @@ public class JavaNativeCodeSandboxImpl implements CodeSandbox {
   private static final String SECURITY_MANAGER_PATH = "classpath:/resources/security";
 
   private static final String SECURITY_MANAGER_CLASS_NAME = "MySecurityManager";
+  public File file;
 
-  // ** 使用字典树检测违禁词 ** //
-  private static final List<String> blackList = Arrays.asList("Files", "exec");
-
-  private static final WordTree WORD_TREE;
-
-  static {
-    // 初始化字典树
-    WORD_TREE = new WordTree();
-    WORD_TREE.addWords(blackList);
-  }
-
-  public static void main(String[] args) {
-    CodeSandbox codeSandbox = new JavaNativeCodeSandboxImpl();
-    ExecuteCodeRequest executeCodeRequest = new ExecuteCodeRequest();
-    executeCodeRequest.setInputList(Arrays.asList("1 2", "1 3"));
-    // 读取 resources/code 下的 Main.java
-    String code = ResourceUtil.readStr("code/Main.java", StandardCharsets.UTF_8);
-    executeCodeRequest.setCode(code);
-    executeCodeRequest.setLanguage("java");
-    codeSandbox.executeCode(executeCodeRequest);
-  }
-
+  /**
+   * 执行代码
+   *
+   * @param executeCodeRequest
+   * @return
+   */
   @Override
   public ExecuteCodeResponse executeCode(ExecuteCodeRequest executeCodeRequest) {
     List<String> inputList = executeCodeRequest.getInputList();
     String code = executeCodeRequest.getCode();
     String language = executeCodeRequest.getLanguage();
 
-    //  校验代码中是否包含黑名单中的命令
-    FoundWord foundWord = WORD_TREE.matchWord(code);
-    if (foundWord != null) {
-        System.out.println("包含禁止词：" + foundWord.getFoundWord());
-        return null;
-    }
-
     // 1. 创建程序文件
-    File file = createFile(DEFAULT_CODE_NAME, code);
-    // 2. 编译代码
+    File file = FileUtil.createFile(DEFAULT_CODE_NAME, code);
+    this.file = file;
+    // 2. 编译文件
+    ExecuteMessage compileFileExecuteMessage = compileFile(file);
+    System.out.println(compileFileExecuteMessage);
+    // 3. 执行代码，得到输出结果
+    List<ExecuteMessage> executeMessageList = runFile(file, code, inputList);
+    // 4. 收集整理输出结果
+    ExecuteCodeResponse outputResponse = getOutputResponse(executeMessageList);
+    // 5. 清理文件
+    clearWorkplace(file);
+    return outputResponse;
+  }
+
+
+  /**
+   * 2. 编译文件 Docker 重写 TODO
+   *
+   * @param file
+   * @return
+   */
+  public ExecuteMessage compileFile(File file) {
     if (file == null) {
       return null;
     }
@@ -79,8 +73,19 @@ public class JavaNativeCodeSandboxImpl implements CodeSandbox {
       Process process = Runtime.getRuntime().exec(compileCmd);
       ProcessUtil.execute(process, "编译");
     } catch (Exception e) {
-      return getErrResponse(e);
+      throw new RuntimeException(e);
     }
+    return null;
+  }
+
+  /**
+   * 3. 执行代码 Docker 重写 TODO
+   *
+   * @param code
+   * @param inputList
+   * @return
+   */
+  public List<ExecuteMessage> runFile(File file, String code, List<String> inputList) {
     // 3. 执行代码 得到输出结果
     List<ExecuteMessage> executeMessageList = new ArrayList<>();
     for (String input : inputList) {
@@ -105,10 +110,19 @@ public class JavaNativeCodeSandboxImpl implements CodeSandbox {
         System.out.println(executeMessage);
         executeMessageList.add(executeMessage);
       } catch (Exception e) {
-        return getErrResponse(e);
+        throw new RuntimeException("执行错误", e);
       }
     }
-    // 4. 收集结果
+    return null;
+  }
+
+  /**
+   * 4. 收集整理输出结果 Docker 重写 TODO
+   *
+   * @param executeMessageList
+   * @return
+   */
+  public ExecuteCodeResponse getOutputResponse(List<ExecuteMessage> executeMessageList) {
     ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
     List<String> outputList = new ArrayList<>();
     // 计算时间最大值
@@ -139,41 +153,17 @@ public class JavaNativeCodeSandboxImpl implements CodeSandbox {
 
     judgeInfo.setTime(maxTime);
     executeCodeResponse.setJudgeInfo(judgeInfo);
-
-    // 5. 文件清理，临时文件放在在 target 目录下，使用 mvn clean 命令即可清除
-
-    // 6. 错误处理 使用getErrResponse或者全局异常处理
-    System.out.println(executeCodeResponse);
     return executeCodeResponse;
   }
 
   /**
-   * 当沙盒运行出错时，返回错误信息
+   * 5. 清理工作环境
    *
+   * @param file
    * @return
    */
-  private ExecuteCodeResponse getErrResponse(Exception e) {
-    ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
-    executeCodeResponse.setOutputList(new ArrayList<>());
-    executeCodeResponse.setMessage(e.getMessage());
-    executeCodeResponse.setStatus(2);
-    executeCodeResponse.setJudgeInfo(new JudgeInfo());
-    return executeCodeResponse;
-  }
 
-  /**
-   * 用户代码隔离存放
-   * @param fileName
-   * @param content
-   * @return
-   */
-  private File createFile(String fileName, String content) {
-    Path path = Paths.get(DEFAULT_CODE_PATH + File.separator + UUID.randomUUID() + File.separator + fileName);
-    try {
-      return FileUtil.writeString(content, path.toString(), StandardCharsets.UTF_8);
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
+  public Boolean clearWorkplace(File file) {
     return null;
   }
 }
